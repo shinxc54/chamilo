@@ -8,8 +8,13 @@ use Chamilo\CoreBundle\Entity\ExtraFieldValues;
 use Chamilo\CoreBundle\Entity\Session;
 use Chamilo\CoreBundle\Entity\SessionRelCourseRelUser;
 use Chamilo\CoreBundle\Entity\Skill;
+use Chamilo\CoreBundle\Entity\UserCourseCategory;
 use Chamilo\CoreBundle\Entity\UsergroupRelUser;
+use Chamilo\UserBundle\Repository\UserRepository;
+use Database;
 use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Criteria;
+use Doctrine\ORM\EntityRepository;
 use Doctrine\ORM\Event\LifecycleEventArgs;
 use Doctrine\ORM\Mapping as ORM;
 use FOS\UserBundle\Model\GroupInterface;
@@ -457,6 +462,14 @@ class User implements UserInterface //implements ParticipantInterface, ThemeUser
     public function __toString()
     {
         return $this->getUsername();
+    }
+
+    /**
+     * @return UserRepository|EntityRepository
+     */
+    public static function getRepository()
+    {
+        return Database::getManager()->getRepository('ChamiloUserBundle:User');
     }
 
     /**
@@ -2593,16 +2606,16 @@ class User implements UserInterface //implements ParticipantInterface, ThemeUser
     }
 
     /**
-     * Retreives this user's related sessions.
+     * Retrieves this user's related sessions.
      *
      * @param int $relationType \Chamilo\CoreBundle\Entity\SessionRelUser::relationTypeList key
      *
-     * @return \Chamilo\CoreBundle\Entity\Session[]
+     * @return Session[]
      */
     public function getSessions($relationType)
     {
         $sessions = [];
-        foreach (\Database::getManager()->getRepository('ChamiloCoreBundle:SessionRelUser')->findBy([
+        foreach (Database::getManager()->getRepository('ChamiloCoreBundle:SessionRelUser')->findBy([
             'user' => $this,
         ]) as $sessionRelUser) {
             if ($sessionRelUser->getRelationType() == $relationType) {
@@ -2616,7 +2629,7 @@ class User implements UserInterface //implements ParticipantInterface, ThemeUser
     /**
      * Retreives this user's related student sessions.
      *
-     * @return \Chamilo\CoreBundle\Entity\Session[]
+     * @return Session[]
      */
     public function getStudentSessions()
     {
@@ -2626,7 +2639,7 @@ class User implements UserInterface //implements ParticipantInterface, ThemeUser
     /**
      * Retreives this user's related DRH sessions.
      *
-     * @return \Chamilo\CoreBundle\Entity\Session[]
+     * @return Session[]
      */
     public function getDRHSessions()
     {
@@ -2638,7 +2651,7 @@ class User implements UserInterface //implements ParticipantInterface, ThemeUser
      *
      * @param int $relationType \Chamilo\CoreBundle\Entity\SessionRelUser::relationTypeList key
      *
-     * @return \Chamilo\CoreBundle\Entity\Session[]
+     * @return Session[]
      */
     public function getCurrentlyAccessibleSessions($relationType = 0)
     {
@@ -2650,5 +2663,37 @@ class User implements UserInterface //implements ParticipantInterface, ThemeUser
         }
 
         return $sessions;
+    }
+
+    /**
+     * Find the largest sort value in a given UserCourseCategory
+     * This method is used when we are moving a course to a different category
+     * and also when a user subscribes to courses (the new course is added at the end of the main category).
+     *
+     * Used to be implemented in global function \api_max_sort_value.
+     * Reimplemented using the ORM cache.
+     *
+     * @param UserCourseCategory|null $userCourseCategory the user_course_category
+     *
+     * @return int|mixed
+     */
+    public function getMaxSortValue($userCourseCategory = null)
+    {
+        $categoryCourses = $this->courses->matching(
+            Criteria::create()
+                ->where(Criteria::expr()->neq('relationType', COURSE_RELATION_TYPE_RRHH))
+                ->andWhere(Criteria::expr()->eq('userCourseCat', $userCourseCategory))
+        );
+
+        return $categoryCourses->isEmpty()
+            ? 0
+            : max(
+                $categoryCourses->map(
+                    /** @var CourseRelUser $courseRelUser */
+                    function ($courseRelUser) {
+                        return $courseRelUser->getSort();
+                    }
+                )->toArray()
+            );
     }
 }
